@@ -23,3 +23,6 @@ generator = [
     "pyyaml",
     "pyosrm@git+https://github.com/liuq/pyosrm"
 ]
+
+[project.scripts]
+hhcrsp = "hhcrsp.scripts.cli:main_cli"
