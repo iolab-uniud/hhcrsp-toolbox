@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hhcrsp-toolbox"
+version = "0.1.0b"
+dependencies = [
+    "click"
+]
+requires-python = ">=3.10"
+description = "Toolbox for generating instances and validating instances of solutions for the Home Healthcare Routing and Scheduling Problem"
+readme = "README.md"
+license = {file = "LICENSE.md"}
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License"
+]
+
+[project.optional-dependencies]
+generator = [
+    "geopandas",
+    "pyyaml",
+    "pyosrm@git+https://github.com/liuq/pyosrm"
+]
