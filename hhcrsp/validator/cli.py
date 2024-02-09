@@ -1,8 +1,8 @@
 import click
-from ..models import Instance, DepartingPoint
+from ..models import Instance, Solution
 import json
 import pandas as pd
-from io import StringIO
+from pydantic import ValidationError
 
 @click.group()
 def cli():
@@ -10,16 +10,18 @@ def cli():
 
 @cli.command()
 @click.argument('filename', type=click.File())
-def validate(filename):
-    c = Instance.model_validate_json(filename.read())
-    #print(c.model_dump_json(exclude_none=True, indent=4))
-    print(c.signature)
+def instance_validate(filename):
+    try:
+        c = Instance.model_validate_json(filename.read())    
+        click.secho(f"Validation OK, instance signature: {c.signature}", fg='green')
+    except ValidationError as e:
+        click.secho(f"{e}", fg='red')
 
 @cli.command()
 @click.argument('filename', type=click.File())
 @click.option('--format', type=click.Choice(['json', 'latex']), default='json', help="Output format")
 @click.option('--pretty', is_flag=True, show_default=True, default=False, help="Pretty print the output")
-def features(filename, format, pretty):
+def instance_features(filename, format, pretty):
     c = Instance.model_validate_json(filename.read())
     if format == 'json':
         if not pretty:
@@ -40,3 +42,19 @@ def features(filename, format, pretty):
                 reformed_dict[(outerKey, )] = [innerDict]
         df = pd.DataFrame(reformed_dict)
         print(df.to_latex(index=False))
+
+@cli.command()
+@click.argument('instance-filename', type=click.File())
+@click.argument('solution-filename', type=click.File())
+def solution_validate(instance_filename, solution_filename):
+    try:
+        i = Instance.model_validate_json(instance_filename.read())
+        s = Solution.model_validate_json(solution_filename.read())    
+        click.secho(f"Validation OK, solution", fg='green')
+        try:
+            s.check_validity(i)
+        except Exception as e:
+            raise ValidationError(e)
+        print(s.compute_costs(i))
+    except ValidationError as e:
+        click.secho(f"{e}", fg='red')
