@@ -4,6 +4,7 @@ from collections.abc import Sequence
 import hashlib
 import click
 import numpy as np
+import math
 
 class DepartingPoint(BaseModel):
     id: Annotated[str, Field(min_length=1, frozen=True)]
@@ -283,6 +284,15 @@ class Solution(BaseModel):
             arrival_at_depot = arrival_at_patient_time + distance
             if arrival_at_depot > c.working_shift[1]:
                 extra_time.append(arrival_at_depot - c.working_shift[1])
+        services_to_provide = sum(len(p.required_services) for p in instance.patients)
+        min_load = math.floor(services_to_provide / len(instance.caregivers))
+        max_load = math.ceil(services_to_provide / len(instance.caregivers))
+        under_load, over_load = 0, 0
+        for r in self.routes:
+            if len(r.locations) < min_load:
+                under_load += min_load - len(r.locations)
+            if len(r.locations) > max_load:
+                over_load += len(r.locations) - max_load
 
         return {
             'total_tardiness': sum(tardiness), 
@@ -290,5 +300,8 @@ class Solution(BaseModel):
             'traveled_distance': distance_traveled,
             'total_idle_time': sum(idle_time),
             'max_idle_time': max(idle_time),
-            'total_extra_time': sum(extra_time)
+            'total_extra_time': sum(extra_time),
+            'under_load': under_load,
+            'over_load': over_load,
+            'balance': under_load + over_load
         }
