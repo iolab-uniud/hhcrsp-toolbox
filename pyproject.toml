@@ -6,7 +6,11 @@ build-backend = "setuptools.build_meta"
 name = "hhcrsp-toolbox"
 version = "0.1.0b"
 dependencies = [
-    "click"
+    "click",
+    "pydantic",
+    "tabulate",
+    "pandas",
+    "numpy"
 ]
 requires-python = ">=3.10"
 description = "Toolbox for generating instances and validating instances of solutions for the Home Healthcare Routing and Scheduling Problem"
