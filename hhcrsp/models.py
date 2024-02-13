@@ -342,7 +342,7 @@ class Solution(BaseModel):
     def compute_costs(self, instance : Instance) -> float:
         tardiness = []
         distance_traveled = 0        
-        idle_time = []
+        waiting_time = []
         extra_time = []
         for r in self.routes:
             c = instance._caregivers[r.caregiver_id]
@@ -358,7 +358,7 @@ class Solution(BaseModel):
                 distance_traveled += travel_time
                 start_index = end_index
                 if l.arrival_at_patient < l.start_service_time:
-                    idle_time.append(l.start_service_time - l.arrival_at_patient)
+                    waiting_time.append(l.start_service_time - l.arrival_at_patient)
             end_index = instance._departing_points[c.departing_point].distance_matrix_index
             distance_traveled += instance.distances[start_index][end_index]            
 
@@ -372,12 +372,18 @@ class Solution(BaseModel):
             if len(r.locations) > max_load:
                 over_load += len(r.locations) - max_load
 
+
+        for r in self.routes:
+            c = instance._caregivers[r.caregiver_id]
+            if c.working_shift is not None and r.locations[-1].arrival_time > c.working_shift[1]:
+                extra_time.append(r.locations[-1].arrival_time - c.working_shift[1])
+
         return {
             'total_tardiness': sum(tardiness), 
             'max_tardiness': max(tardiness) if tardiness else 0,
             'traveled_distance': distance_traveled,
-            'total_idle_time': sum(idle_time),
-            'max_idle_time': max(idle_time),
+            'total_waiting_time': sum(waiting_time),
+            'max_waiting_time': max(waiting_time),
             'total_extra_time': sum(extra_time),
             'under_load': under_load,
             'over_load': over_load,
