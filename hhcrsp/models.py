@@ -16,7 +16,7 @@ class Caregiver(BaseModel):
     abilities: Annotated[list[str], Field(min_length=1)]
     distance_matrix_index: Annotated[int, Field(ge=0)]
     departing_point: Annotated[str, Field(min_length=1, alias=AliasChoices('starting_point_id', 'departing_point'))]
-    # FIXME: working shift should be already mapped to the suitable type list(map(int, self.working_shift))
+    # FIXME: working shift (in the generator) should be already mapped to the suitable type list(map(int, self.working_shift))
     working_shift: tuple[int, int] = None
 
     @model_validator(mode='after')
@@ -44,7 +44,7 @@ class Service(BaseModel):
 class RequiredService(BaseModel):
     service: Annotated[str, Field(min_length=1)]
     duration: Optional[Annotated[int, Field(gt=0)]] = None
-    actual_duration: Annotated[int, Field(gt=0, exclude=True, repr=False)] = None
+    _actual_duration: Annotated[int, Field(gt=0, exclude=True, repr=False)] = None
 
 class Patient(BaseModel):
     id: Annotated[str, Field(min_length=1, frozen=False)]
@@ -68,12 +68,16 @@ class Instance(BaseModel):
     name: Annotated[str, Field(min_length=1, frozen=False)]
     # FIXME: round area bounds outside the function tuple(np.around(area, decimals=4))
     area: Optional[Sequence[float]] = None
-    # FIXME: compute times outside the function [[int(d.total_seconds() // 60) for d in r] for r in distances]
+    # FIXME: (in the geenrator) compute times outside the function [[int(d.total_seconds() // 60) for d in r] for r in distances]
     distances: Sequence[Sequence[int]]
     departing_points : Sequence[DepartingPoint]
     caregivers : Sequence[Caregiver]
     patients : Sequence[Patient]
     services : Sequence[Service]
+    _departing_points: dict[str, DepartingPoint, Field(exclude=True, repr=False)] = None
+    _caregivers: dict[str, Caregiver, Field(exclude=True, repr=False)] = None
+    _patients: dict[str, Patient, Field(exclude=True, repr=False)] = None
+    _services: dict[str, Service, Field(exclude=True, repr=False)] = None
 
     @model_validator(mode='after')
     def _check_validity(self) -> Self:
@@ -106,7 +110,7 @@ class Instance(BaseModel):
             matrix_indexes.add(p.distance_matrix_index)        
             # setting default durations if not given
             for s in p.required_services:
-                s.actual_duration = s.duration or services[s.service].default_duration                
+                s._actual_duration = s.duration or services[s.service].default_duration                
             service_types = set(services[rs].type for rs in required_services)
             assert len(service_types) == len(required_services), f"Patient {p.id} is requiring services {required_services} of the same types {service_types}"
             # Checking incompatible caregivers and getting rid of those which are not providing the required services
@@ -122,11 +126,17 @@ class Instance(BaseModel):
                 
         assert patients_service_requirement <= caregivers_service_coverage, f"Some services required by patients are not provided by any caregiver ({patients_service_requirement - caregivers_service_coverage})"        
         assert matrix_indexes == set(range(expected_matrix_size)), f"Some patients / departing point have been wrongly assigned their matrix index"
-        # checking thaat the time window is compatible with the service time distance in case of sequential services
+        # checking that the time window is compatible with the service time distance in case of sequential services
         for p in self.patients:
             for s in p.required_services:
                 if p.synchronization and p.synchronization.type == 'sequential':
                     assert p.time_window[1] - p.time_window[0] >= min(p.synchronization.distance), f"Patient {p.id} has a time window too short for the synchronization services required"
+        
+        # fill in the dictionaries for quicker access
+        self._departing_points = { dp.id: dp for dp in self.departing_points }
+        self._caregivers = { c.id: c for c in self.caregivers }
+        self._patients = { p.id: p for p in self.patients }        
+        self._services = { s.id: s for s in self.services }
        
         return self
     
@@ -158,7 +168,7 @@ class Instance(BaseModel):
                 possible_caregivers_for_service = set(c.id for c in self.caregivers if s.service in c.abilities and c.id not in (p.incompatible_caregivers or set()))
                 compatible_caregivers.append(len(possible_caregivers_for_service))
             time_windows_size.append(p.time_window[1] - p.time_window[0])
-            service_length += [s.actual_duration for s in p.required_services]
+            service_length += [s._actual_duration for s in p.required_services]
         features['compatible_caregivers'] = { 
             'min': min(compatible_caregivers), 
             'avg': sum(compatible_caregivers) / len(compatible_caregivers),
@@ -176,80 +186,156 @@ class Instance(BaseModel):
         }
         return features
     
+### Solution Model
 
-class RouteLocation(BaseModel):
-    arrival_time: Annotated[int | float, Field(ge=0)]
-    departure_time: Annotated[int | float, Field(ge=0)]
+class PatientVisit(BaseModel):
+    start_service_time: Annotated[int | float, Field(ge=0, alias=AliasChoices('start_service_time', 'arrival_time'))]
+    end_service_time: Annotated[int | float, Field(ge=0, alias=AliasChoices('end_service_time', 'departure_time'))]
     patient: str
     service: str
+    arrival_at_patient: Optional[int | float] = None
 
     @model_validator(mode='after')
     def _check_validity(self) -> Self:
-        assert self.arrival_time < self.departure_time, "Arrival time is greater than departure time"
+        assert self.start_service_time < self.end_service_time, f"Start service time for service {self.service} at patient {self.patient} is greater than end service time"
+        if self.arrival_at_patient is not None:
+            assert self.arrival_at_patient <= self.start_service_time, f"Arrival at patient {self.patient} for service {self.service} is greater than start service time"
         return self
+    
+class DepotDeparture(BaseModel):
+    departing_time: Annotated[int | float, Field(ge=0)]
+    depot: str    
+
+class DepotArrival(BaseModel):
+    arrival_time: Annotated[int | float, Field(ge=0)]
+    depot: str   
 
 class CaregiverRoute(BaseModel):
     caregiver_id: str
-    locations: list[RouteLocation]
+    locations: list[DepotDeparture | PatientVisit | DepotArrival]
+    _visits: list[PatientVisit, Field(exclude=True, repr=False)] = []
+    _full_route: Annotated[bool, Field(exclude=True, repr=False)] = False
+
+    @model_validator(mode='after')
+    def _check_vallidity(self):
+        if self.locations:
+            self._full_route = False
+            if type(self.locations[0]) == DepotDeparture:
+                assert type(self.locations[-1]) == DepotArrival, "First location is a depot but last location is not"
+                self._full_route = True
+            if self._full_route:                
+                assert len(self.locations) > 2, f"Caregiver {self.caregiver_id} has a full route with no intermediate location"            
+                self._visits = [self.locations[i] for i in range(1, len(self.locations) - 1)]
+            else:
+                self._visits = [l for l in self.locations]
+            prev_time = 0 if not self._full_route else self.locations[0].departing_time
+            for i, l in enumerate(self._visits):                
+                assert type(l) == PatientVisit, f"Location {l} of caregiver {self.caregiver_id} (at step {i + 1 if self._full_route else i}) is not a patient location"
+                assert l.start_service_time >= prev_time, f"Start service time of caregiver {self.caregiver_id} (at step {i + 1 if self._full_route else i}) {l.start_service_time} is not consistent with the previous one ({prev_time})"
+                assert l.end_service_time  > l.start_service_time, f"End service time of caregiver {self.caregiver_id} (at step {i + 1 if self._full_route else i}) {l.end_service_time} is not greater than start service time {l.start_service_time}"
+                prev_time = l.end_service_time
+            if self._full_route:
+                assert self.locations[-1].arrival_time >= prev_time, f"Arrival time at depot of caregiver {self.caregiver_id} {self.locations[-1].arrival_time} is not consistent with the previous end service time {prev_time}"
+
+        return self    
 
 class Solution(BaseModel):
     instance: Optional[Annotated[str, Field(min_length=1)]] = None
     routes: list[CaregiverRoute]
+    _normalized: Annotated[bool, Field(exclude=True, repr=False)] = False
 
     @model_validator(mode='after')
     def _check_validity(self) -> Self:
         assert len(self.routes) == len(set(r.caregiver_id for r in self.routes)), "Some caregivers are repeated in the solution"
-        for r in self.routes:
-            for i, l in enumerate(r.locations):
-                if i > 0:
-                    assert l.arrival_time >= r.locations[i - 1].departure_time, f"Route of caregiver {r.caregiver_id} is not consistent with the times"
+        self._normalized = True
+        for r in self.routes:            
+            if any(l.arrival_at_patient is not None for l in r._visits):
+                self._normalized = False
+                break
+
         return self
     
     def check_validity(self, instance : Instance):
         # check that all patients are visited
-        patients = {l.patient for r in self.routes for l in r.locations} 
+        patients = {l.patient for r in self.routes for l in r._visits} 
         visited_patients = {p.id for p in instance.patients}
         assert patients == visited_patients, f"Some patients are not visited ({visited_patients - patients})"
         # check that all services required by each patient are provided
         for p in instance.patients:
             for s in p.required_services:
-                providing_caregivers = {r.caregiver_id for r in self.routes for l in r.locations if l.patient == p.id and l.service == s.service}
+                providing_caregivers = {r.caregiver_id for r in self.routes for l in r._visits if l.patient == p.id and l.service == s.service}
                 assert len(providing_caregivers) >= 1, f"Patient {p.id} requires service {s.service} which is not provided"
                 assert len(providing_caregivers) == 1, f"Patient {p.id} requires service {s.service} which is provided by more than one caregiver"
-        # check that the times are consistent with the distances
+        # normalize routes, by transforming them into full routes
         for r in self.routes:
-            for i in range(len(r.locations) - 1):
-                start_index = next(p.distance_matrix_index for p in instance.patients if p.id == r.locations[i].patient)
-                end_index = next(p.distance_matrix_index for p in instance.patients if p.id == r.locations[i + 1].patient)
-                assert r.locations[i + 1].arrival_time >= r.locations[i].departure_time + instance.distances[start_index][end_index], f"Route of caregiver {r.caregiver_id} is not consistent with the distances"
+            c = instance._caregivers[r.caregiver_id]
+            if r._full_route:
+                continue
+            # search for the depot which is the first location of the caregiver
+            depot = instance._departing_points[c.departing_point]            
+            # search for the patient which is the first location of the caregiver
+            first_patient = instance._patients[r._visits[0].patient]
+            travel_time = instance.distances[depot.distance_matrix_index][first_patient.distance_matrix_index]
+            # compute the latest time the caregiver can depart to arrive at first patient
+            depot_departure = r.locations[0].start_service_time - travel_time
+            r.locations.insert(0, DepotDeparture(departing_time=depot_departure, depot=depot.id))
+            # compute the earliest time the caregiver arrive at the depot after the last patient
+            last_patient = instance._patients[r._visits[-1].patient]
+            travel_time = instance.distances[last_patient.distance_matrix_index][depot.distance_matrix_index]
+            depot_arrival = r._visits[-1].end_service_time + travel_time
+            r.locations.append(DepotArrival(arrival_time=depot_arrival, depot=depot.id))
+            r._full_route = True
+
+        # check that the times are consistent with the distances and normalize the arrival times
+        for r in self.routes:
+            for i in range(len(r._visits) - 1):
+                start_index = instance._patients[r._visits[i].patient].distance_matrix_index
+                end_index = instance._patients[r._visits[i + 1].patient].distance_matrix_index
+                travel_time = instance.distances[start_index][end_index]
+                assert r._visits[i + 1].start_service_time >= r._visits[i].end_service_time + travel_time, f"Route of caregiver {r.caregiver_id} is not consistent with the distances ({r.locations[i].end_service_time} + {travel_time} vs {r.locations[i + 1].start_service_time})"
+                if not r._visits[i + 1].arrival_at_patient:
+                    r._visits[i + 1].arrival_at_patient = r._visits[i].end_service_time + travel_time
+                assert r._visits[i + 1].start_service_time >= r._visits[i + 1].arrival_at_patient, f"Route of caregiver {r.caregiver_id} is not consistent with the arrival at patient"                
+            # check the first location (i.e., depot)
+            start_index = instance._departing_points[r.locations[0].depot].distance_matrix_index
+            end_index = instance._patients[r.locations[1].patient].distance_matrix_index
+            travel_time = instance.distances[start_index][end_index]
+            assert r.locations[1].start_service_time >= r.locations[0].departing_time + travel_time, f"Route of caregiver {r.caregiver_id} is not consistent with the distances from the depot ({r.locations[0].departing_time} + {travel_time} vs {r.locations[1].start_service_time})"
+            if not r.locations[1].arrival_at_patient:
+                r.locations[1].arrival_at_patient = r.locations[0].departing_time + travel_time
+            assert r.locations[1].start_service_time >= r.locations[1].arrival_at_patient, f"Route of caregiver {r.caregiver_id} is not consistent with the arrival at patient"
+            # check the last location (i.e., depot)
+            start_index = instance._patients[r.locations[-2].patient].distance_matrix_index
+            end_index = instance._departing_points[r.locations[-1].depot].distance_matrix_index
+            travel_time = instance.distances[start_index][end_index]
+            assert r.locations[-1].arrival_time >= r.locations[-2].end_service_time + travel_time, f"Route of caregiver {r.caregiver_id} is not consistent with the distances to the depot ({r.locations[-2].end_service_time} + {travel_time} vs {r.locations[-1].arrival_time})"
             # check that the times are consistent with the service duration
-            for l in r.locations:
-                p = next(p for p in instance.patients if p.id == l.patient)
-                s = next(s for s in p.required_services if s.service == l.service)
-                assert l.departure_time - l.arrival_time >= s.actual_duration, f"Route of caregiver {r.caregiver_id} is not consistent with the service durations"
+            for l in r._visits:
+                s = next(s for s in instance._patients[l.patient].required_services if s.service == l.service)
+                assert l.end_service_time - l.start_service_time >= s._actual_duration, f"Route of caregiver {r.caregiver_id} at {l} is not consistent with the service durations"
             # check that the times are consistent with the working shift
-            c = next(c for c in instance.caregivers if c.id == r.caregiver_id)
-            assert r.locations[0].arrival_time >= c.working_shift[0], f"Route of caregiver {r.caregiver_id} is not consistent with his/her working shift"
+            c = instance._caregivers[r.caregiver_id]
+            assert r.locations[0].departing_time >= c.working_shift[0], f"Route of caregiver {r.caregiver_id} is not consistent with his/her working shift"
         # check that for patients requiring sequential and simultaneous services, the services are provided correctly
         for p in instance.patients:            
             if p.synchronization is not None:
-                caregivers = {l.service: l for r in self.routes for l in r.locations if l.patient == p.id}
+                caregivers = {l.service: l for r in self.routes for l in r._visits if l.patient == p.id}
                 assert len(caregivers) == 2, f"Patient {p.id} requires double service but they are provided by the same caregiver"
                 if p.synchronization.type == 'simultaneous':
-                    assert caregivers[p.required_services[0].service].arrival_time == caregivers[p.required_services[0].service].arrival_time, f"Patient {p.id} requires simultaneous service but they are not provided simultaneously {caregivers[p.required_services[0].service].arrival_time} vs {caregivers[p.required_services[1].service].arrival_time}"
+                    assert caregivers[p.required_services[0].service].start_service_time == caregivers[p.required_services[0].service].start_service_time, f"Patient {p.id} requires simultaneous service but they are not provided simultaneously {caregivers[p.required_services[0].service].start_service_time} vs {caregivers[p.required_services[1].service].start_service_time}"
                 else:
-                    assert caregivers[p.required_services[0].service].arrival_time + p.synchronization.distance[0] <= caregivers[p.required_services[1].service].arrival_time, f"Patient {p.id} requires sequential service but the order is not respected (second service starting too early {caregivers[p.required_services[0].service].arrival_time} vs {caregivers[p.required_services[1].service].arrival_time} and min distance {p.synchronization.distance[0]})"
-                    assert caregivers[p.required_services[0].service].arrival_time + p.synchronization.distance[1] >= caregivers[p.required_services[1].service].arrival_time, f"Patient {p.id} requires sequential service but the order is not respected (second service starting too late {caregivers[p.required_services[0].service].arrival_time} vs {caregivers[p.required_services[1].service].arrival_time} and max distance {p.synchronization.distance[1]})"
+                    assert caregivers[p.required_services[0].service].start_service_time + p.synchronization.distance[0] <= caregivers[p.required_services[1].service].start_service_time, f"Patient {p.id} requires sequential service but the order is not respected (second service starting too early {caregivers[p.required_services[0].service].start_service_time} vs {caregivers[p.required_services[1].service].start_service_time} and min distance {p.synchronization.distance[0]})"
+                    assert caregivers[p.required_services[0].service].start_service_time + p.synchronization.distance[1] >= caregivers[p.required_services[1].service].start_service_time, f"Patient {p.id} requires sequential service but the order is not respected (second service starting too late {caregivers[p.required_services[0].service].start_service_time} vs {caregivers[p.required_services[1].service].start_service_time} and max distance {p.synchronization.distance[1]})"
         # check that a patient is served after his/her time window starts
         for p in instance.patients:
             for r in self.routes:
-                for l in r.locations:
+                for l in r._visits:
                     if l.patient == p.id:
-                        assert l.arrival_time >= p.time_window[0], f"Patient {p.id} is served before his/her time window starts"
+                        assert l.start_service_time >= p.time_window[0], f"Patient {p.id} is served before his/her time window starts"
         # check that all caregivers provide services for whih they are qualified
         for r in self.routes:
-            for l in r.locations:
-                c = next(c for c in instance.caregivers if c.id == r.caregiver_id)
+            for l in r._visits:
+                c = instance._caregivers[r.caregiver_id]
                 assert l.service in c.abilities, f"Caregiver {c.id} is providing a service for which he/she is not qualified"        
 
 
@@ -259,31 +345,23 @@ class Solution(BaseModel):
         idle_time = []
         extra_time = []
         for r in self.routes:
-            c = next(c for c in instance.caregivers if c.id == r.caregiver_id)
-            for l in r.locations:
-                p = next(p for p in instance.patients if p.id == l.patient)
-                tardiness.append(max(0, l.arrival_time - p.time_window[1]))
-            # search for the depot which is the first location of the caregier
-            depot = next(d for d in instance.departing_points if d.id == c.departing_point)
-            prev_location = depot
-            arrival_at_patient_time = c.working_shift[0]
-            for i, l in enumerate(r.locations):
-                current_location = next(p for p in instance.patients if p.id == l.patient)
-                distance = instance.distances[prev_location.distance_matrix_index][current_location.distance_matrix_index]
-                distance_traveled += distance
-                if i == 0:
-                    # for the first patient, the caregiver can arrive at the patient location at the earliest
-                    arrival_at_patient_time = max(arrival_at_patient_time + distance, l.arrival_time)
-                else:
-                    arrival_at_patient_time = r.locations[i - 1].departure_time + distance
-                if arrival_at_patient_time < l.arrival_time:
-                    idle_time.append(l.arrival_time - arrival_at_patient_time)
-                prev_location = current_location
-            distance = instance.distances[current_location.distance_matrix_index][depot.distance_matrix_index]
-            distance_traveled += distance
-            arrival_at_depot = arrival_at_patient_time + distance
-            if arrival_at_depot > c.working_shift[1]:
-                extra_time.append(arrival_at_depot - c.working_shift[1])
+            c = instance._caregivers[r.caregiver_id]
+            # compute tardiness
+            for l in r._visits:
+                p = instance._patients[l.patient]
+                tardiness.append(max(0, l.start_service_time - p.time_window[1]))
+            # compute distance traveled
+            start_index = instance._departing_points[c.departing_point].distance_matrix_index
+            for i, l in enumerate(r._visits):
+                end_index = instance._patients[l.patient].distance_matrix_index
+                travel_time = instance.distances[start_index][end_index]
+                distance_traveled += travel_time
+                start_index = end_index
+                if l.arrival_at_patient < l.start_service_time:
+                    idle_time.append(l.start_service_time - l.arrival_at_patient)
+            end_index = instance._departing_points[c.departing_point].distance_matrix_index
+            distance_traveled += instance.distances[start_index][end_index]            
+
         services_to_provide = sum(len(p.required_services) for p in instance.patients)
         min_load = math.floor(services_to_provide / len(instance.caregivers))
         max_load = math.ceil(services_to_provide / len(instance.caregivers))
