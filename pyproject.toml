@@ -29,8 +29,7 @@ generator = [
     "pyosrm@git+https://github.com/liuq/pyosrm"
 ]
 visualizer = [
-    "plotly",
-    "dash"
+    "plotly"
 ]
 
 [project.scripts]

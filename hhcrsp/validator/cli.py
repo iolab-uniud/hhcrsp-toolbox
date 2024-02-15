@@ -80,7 +80,7 @@ def convert_solution(instance_filename, solution_filename, output):
 @cli.command()
 @click.argument('instance-filename', type=click.File())
 @click.argument('solution-filename', type=click.File())
-@click.option('--output', '-o', type=click.Path(), help="Output file")
+@click.option('--output', '-o', type=click.Path(dir_okay=False, writable=True), help="Output file")
 def plot_solution(instance_filename, solution_filename, output):
     from .plot import plot
     i = Instance.model_validate_json(instance_filename.read())
@@ -91,3 +91,19 @@ def plot_solution(instance_filename, solution_filename, output):
         plt.show()
     else:
         plt.savefig(output)
+
+@cli.command()
+@click.argument('instance-filename', type=click.File())
+@click.argument('solution-filename', type=click.File())
+@click.option('--output', '-o', type=click.Path(dir_okay=False, writable=True), help="Output file")
+def view_solution(instance_filename, solution_filename, output):
+    from .interactive_visualizer import visualize
+    i = Instance.model_validate_json(instance_filename.read())
+    s = Solution.model_validate_json(solution_filename.read())    
+    s.check_validity(i)
+    fig = visualize(i, s)
+    if not output:
+        fig.show()
+    else:
+        assert output.endswith('.html'), "Output file must be an HTML file"
+        fig.write_html(output)
