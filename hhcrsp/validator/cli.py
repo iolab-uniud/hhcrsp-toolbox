@@ -107,3 +107,11 @@ def view_solution(instance_filename, solution_filename, output):
     else:
         assert output.endswith('.html'), "Output file must be an HTML file"
         fig.write_html(output)
+
+@cli.command()
+@click.argument('what', type=click.Choice(['instance', 'solution']), default='instance')
+def show_schema(what):
+    if what == 'instance':
+        print(Instance.schema_json())
+    elif what == 'solution':
+        print(Solution.schema_json())
