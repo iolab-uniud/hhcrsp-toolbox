@@ -11,7 +11,8 @@ dependencies = [
     "tabulate",
     "pandas",
     "numpy",
-    "matplotlib"
+    "matplotlib",
+    "plotly"
 ]
 requires-python = ">=3.10"
 description = "Toolbox for generating instances and validating instances of solutions for the Home Healthcare Routing and Scheduling Problem"
@@ -27,9 +28,6 @@ generator = [
     "geopandas",
     "pyyaml",
     "pyosrm@git+https://github.com/liuq/pyosrm"
-]
-visualizer = [
-    "plotly"
 ]
 
 [project.scripts]
