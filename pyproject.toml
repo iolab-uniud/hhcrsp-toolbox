@@ -1,7 +1,3 @@
-[build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "hhcrsp-toolbox"
 version = "0.1.0b"
@@ -33,12 +29,33 @@ generator = [
 [project.scripts]
 hhcrsp = "hhcrsp.scripts.cli:main_cli"
 
-[tool.poetry.dependencies]
-click = "^8.0.1"
-pydantic = "^1.8.2"
-pandas = "^1.3.3"
-tabulate = "^0.8.9"
-numpy = "^1.21.2"
-matplotlib = "^3.4.3"
-plotly = "^5.3.1"
 
+[tool.poetry]
+name = "hhcrsp-toolbox"
+version = "0.1.0"
+description = "Toolbox for validating instances and solutions of the Home Healthcare Routing and Scheduling Problem"
+authors = ["Luca Di Gaspero <luca.digaspero@uniud.it>"]
+license = "MIT"
+readme = "README.md"
+packages = [{ include = "hhcrsp" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+click = "^8.1.7"
+pydantic = "^2.6.1"
+tabulate = "^0.9.0"
+pandas = "^2.2.0"
+numpy = "^1.26.4"
+matplotlib = "^3.8.3"
+plotly = "^5.19.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+flake8 = "^7.0.0"
+
+[tool.poetry.scripts]
+hhcrsp = "hhcrsp.scripts.cli:main_cli"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
