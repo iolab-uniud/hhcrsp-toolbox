@@ -49,12 +49,12 @@ numpy = "^1.26.4"
 matplotlib = "^3.8.3"
 plotly = "^5.19.0"
 
-[tool.poetry.group.dev.dependencies]
-pytest = "^8.0.0"
-flake8 = "^7.0.0"
-
 [tool.poetry.scripts]
 hhcrsp = "hhcrsp.scripts.cli:main_cli"
+
+[tool.poetry.group.dev.dependencies]
+flake8 = "^7.0.0"
+pytest = "^8.0.1"
 
 [build-system]
 requires = ["poetry-core"]
