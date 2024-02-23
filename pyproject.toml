@@ -40,7 +40,7 @@ readme = "README.md"
 packages = [{ include = "hhcrsp" }]
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = ">=3.10"
 click = "^8.1.7"
 pydantic = "^2.6.1"
 tabulate = "^0.9.0"
@@ -51,10 +51,6 @@ plotly = "^5.19.0"
 
 [tool.poetry.scripts]
 hhcrsp = "hhcrsp.scripts.cli:main_cli"
-
-[tool.poetry.group.dev.dependencies]
-flake8 = "^7.0.0"
-pytest = "^8.0.1"
 
 [build-system]
 requires = ["poetry-core"]
