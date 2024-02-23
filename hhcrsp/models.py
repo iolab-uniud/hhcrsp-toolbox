@@ -74,10 +74,10 @@ class Instance(BaseModel):
     caregivers : Sequence[Caregiver]
     patients : Sequence[Patient]
     services : Sequence[Service]
-    _departing_points: dict[str, DepartingPoint, Field(exclude=True, repr=False)] = None
-    _caregivers: dict[str, Caregiver, Field(exclude=True, repr=False)] = None
-    _patients: dict[str, Patient, Field(exclude=True, repr=False)] = None
-    _services: dict[str, Service, Field(exclude=True, repr=False)] = None
+    _departing_points: Annotated[dict[str, DepartingPoint], Field(exclude=True, repr=False)] = None
+    _caregivers: Annotated[dict[str, Caregiver], Field(exclude=True, repr=False)] = None
+    _patients: Annotated[dict[str, Patient], Field(exclude=True, repr=False)] = None
+    _services: Annotated[dict[str, Service], Field(exclude=True, repr=False)] = None
 
     @model_validator(mode='after')
     def _check_validity(self) -> Self:
@@ -213,7 +213,7 @@ class DepotArrival(BaseModel):
 class CaregiverRoute(BaseModel):
     caregiver_id: str
     locations: list[DepotDeparture | PatientVisit | DepotArrival]
-    _visits: list[PatientVisit, Field(exclude=True, repr=False)] = []
+    _visits: Annotated[list[PatientVisit], Field(exclude=True, repr=False)] = []
     _full_route: Annotated[bool, Field(exclude=True, repr=False)] = False
 
     @model_validator(mode='after')
