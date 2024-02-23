@@ -40,7 +40,7 @@ readme = "README.md"
 packages = [{ include = "hhcrsp" }]
 
 [tool.poetry.dependencies]
-python = ">=3.10"
+python = ">=3.11"
 click = "^8.1.7"
 pydantic = "^2.6.1"
 tabulate = "^0.9.0"
