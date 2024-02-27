@@ -8,13 +8,12 @@ import math
 
 class DepartingPoint(BaseModel):
     id: Annotated[str, Field(min_length=1, frozen=True)]
-    distance_matrix_index: Annotated[int, Field(ge=0)]
+    distance_matrix_index: Optional[Annotated[int, Field(ge=0)]] = None
     location: tuple[float, float] = None
 
 class Caregiver(BaseModel):
     id: Annotated[str, Field(min_length=1, frozen=True)]
     abilities: Annotated[list[str], Field(min_length=1)]
-    distance_matrix_index: Annotated[int, Field(ge=0)]
     departing_point: Annotated[str, Field(min_length=1, alias=AliasChoices('starting_point_id', 'departing_point'))]
     # FIXME: working shift (in the generator) should be already mapped to the suitable type list(map(int, self.working_shift))
     working_shift: tuple[int, int] = None
@@ -50,7 +49,7 @@ class Patient(BaseModel):
     id: Annotated[str, Field(min_length=1, frozen=False)]
     required_services: Annotated[list[RequiredService], 
                                  Field(min_length=1, max_length=2, alias=AliasChoices('required_caregivers', 'required_services'))]
-    distance_matrix_index: Annotated[int, Field(ge=0)]
+    distance_matrix_index: Optional[Annotated[int, Field(ge=0)]] = None
     time_window: Optional[tuple[int, int]]
     location: Optional[tuple[float, float]] = None
     synchronization: Optional[Synchronization] = None
@@ -86,6 +85,14 @@ class Instance(BaseModel):
         assert len(self.distances) == expected_matrix_size, f"The distance matrix is supposed to have {expected_matrix_size} rows ({len(self.departing_points)} departing points + {len(self.patients)} patients)"
         for i, r in enumerate(self.distances):
             assert(len(r)) == expected_matrix_size, f"Row {i} of the distance matrix is supposed to have {expected_matrix_size} columns ({len(self.departing_points)} departing points + {len(self.patients)} patients)"
+        # check departing point indexes (i.e., old versions of the generator might not have them)
+        for i, dp in enumerate(self.departing_points):
+            if dp.distance_matrix_index is None:
+                dp.distance_matrix_index = i
+        # check patients indexes (i.e., old versions of the generator might not have them)
+        for i, p in enumerate(self.patients):
+            if p.distance_matrix_index is None:
+                p.distance_matrix_index = i + len(self.departing_points)
         # Foreign keys (caregivers to services and departing points)
         services_id = set(s.id for s in self.services)
         services = { s.id: s for s in self.services }
