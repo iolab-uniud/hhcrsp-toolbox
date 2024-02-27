@@ -1,4 +1,4 @@
-from typing import Optional, Literal, Annotated, Self, Any
+from typing import Optional, Literal, Annotated, Any
 from pydantic import BaseModel, Field, model_validator, computed_field, AliasChoices
 from collections.abc import Sequence
 import hashlib
@@ -20,7 +20,7 @@ class Caregiver(BaseModel):
     working_shift: tuple[int, int] = None
 
     @model_validator(mode='after')
-    def _check_validity(self) -> Self:
+    def _check_validity(self) -> 'Caregiver':
         if self.working_shift is not None:
             assert self.working_shift[0] < self.working_shift[1], f"Working shift not correct {self.working_shift}"
         return self
@@ -30,7 +30,7 @@ class Synchronization(BaseModel):
     distance: Optional[tuple[int, int]] = None
 
     @model_validator(mode='after')
-    def _check_validity(self) -> Self:
+    def _check_validity(self) -> 'Synchronization':
         if self.type == 'sequential':
             assert self.distance[0] <= self.distance[1], f"Sequential sychronization distance not correct {self.distance}"
         return self
@@ -57,7 +57,7 @@ class Patient(BaseModel):
     incompatible_caregivers: set[str] = None
 
     @model_validator(mode='after')
-    def _validity_checks(self) -> Self:
+    def _validity_checks(self) -> 'Patient':
         if len(self.required_services) > 1:
             assert self.synchronization is not None, "Synchronization specification is mandatory if more than one caregiver is required"
         if self.time_window is not None:
@@ -80,7 +80,7 @@ class Instance(BaseModel):
     _services: Annotated[dict[str, Service], Field(exclude=True, repr=False)] = None
 
     @model_validator(mode='after')
-    def _check_validity(self) -> Self:
+    def _check_validity(self) -> 'Instance':
         # Matrix Size
         expected_matrix_size = len(self.departing_points) + len(self.patients)
         assert len(self.distances) == expected_matrix_size, f"The distance matrix is supposed to have {expected_matrix_size} rows ({len(self.departing_points)} departing points + {len(self.patients)} patients)"
@@ -196,7 +196,7 @@ class PatientVisit(BaseModel):
     arrival_at_patient: Optional[int | float] = None
 
     @model_validator(mode='after')
-    def _check_validity(self) -> Self:
+    def _check_validity(self) -> 'PatientVisit':
         assert self.start_service_time < self.end_service_time, f"Start service time for service {self.service} at patient {self.patient} is greater than end service time"
         if self.arrival_at_patient is not None:
             assert self.arrival_at_patient <= self.start_service_time, f"Arrival at patient {self.patient} for service {self.service} is greater than start service time"
@@ -245,7 +245,7 @@ class Solution(BaseModel):
     _normalized: Annotated[bool, Field(exclude=True, repr=False)] = False
 
     @model_validator(mode='after')
-    def _check_validity(self) -> Self:
+    def _check_validity(self) -> 'Solution':
         assert len(self.routes) == len(set(r.caregiver_id for r in self.routes)), "Some caregivers are repeated in the solution"
         self._normalized = True
         for r in self.routes:            

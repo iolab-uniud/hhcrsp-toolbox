@@ -8,8 +8,13 @@ from pathlib import Path
 import bz2
 import click
 import tempfile
+import zipfile
+import geopandas as gpd
+import pandas as pd
+import country_converter as coco 
+import io
 
-class MapDownloadError(Exception):
+class DataDownloadError(Exception):
     pass
 
 class OSRMProcessingError(Exception):
@@ -62,7 +67,7 @@ def download_osm_data(west : float, south : float, east : float, north : float, 
         with open_func(output_filename, 'wb') as file:
             file.write(response.content)
     else:
-        raise MapDownloadError(f"Error downloading data: {response.status_code} {response.reason}")
+        raise DataDownloadError(f"Error downloading data from {overpass_url}: {response.status_code} {response.reason}")
 
 def find_osm_bounds(filename : Path):
     if '.bz2' in filename.suffixes:
@@ -142,3 +147,77 @@ def prepare_osrm_data(osm_file_path : Path, profile_path : Path=None):
 
         click.echo(f"Data preparation complete. Ready for routing with data in {target_dir}")
         
+def download_population_density(filename : Path):
+    url = 'https://gisco-services.ec.europa.eu/census/2021/Eurostat_Census-GRID_2021_V1-0.zip'
+    response = requests.get(url)
+    if response.status_code == 200:
+        with tempfile.TemporaryDirectory() as tmp_dir, open(Path(tmp_dir) / 'census_data.zip', 'wb') as file:
+            file.write(response.content)
+            file.seek(0)
+            click.echo(f'Downloaded Eurostat census data')
+            with zipfile.ZipFile(file.name, 'r') as zip_ref:
+                for file in zip_ref.namelist():
+                    if '.gpkg' in file:
+                    #    (Path(tmp_dir) / file).rename(filename)
+                        click.echo(f'Reading and transforming {file}')
+                        gdf = gpd.read_file(zip_ref.open(file))
+                        # Filter out rows with no population
+                        gdf = gdf[gdf.OBS_VALUE_T > 0.0]
+                        click.echo(f'Writing to {filename}')
+                        gdf.to_feather(Path(tmp_dir) / filename, compression='zstd')
+                        break
+    else:
+        raise DataDownloadError(f"Error downloading census data from {url}: {response.status_code} {response.reason}")
+
+def download_gisco_administrative_data(year='2021', resolution='01M', level='2', epsg_proj='3035'):
+    """
+    Fetch local administrative units from the GISCO API.
+    
+    Parameters:
+    - year: The year of the data. Default is '2021'.
+    - resolution: The resolution of the geographical data. Options include '01M', '03M', '10M', '20M', and '60M'. Default is '01M'.
+    - level: The administrative level. Level '2' for NUTS 2 regions, and '3' for LAU (Local Administrative Units). Default is '2'.
+    
+    Returns:
+    - A JSON object containing the requested geographical data.
+    """
+    # GISCO API endpoint for administrative units
+    base_url = 'https://gisco-services.ec.europa.eu/distribution/v2'
+    if level == '2':
+        data_type = 'nuts'
+        file_name = 'NUTS_RG'
+    elif level == '3':
+        data_type = 'lau'
+        file_name = 'LAU_RG'
+    else:
+        raise ValueError("Unsupported level. Choose '2' for NUTS 2 or '3' for LAU.")
+    
+    # Constructing the URL based on the parameters
+    request_url = f'{base_url}/{data_type}/geojson/{file_name}_{resolution}_{year}_{epsg_proj}.geojson'
+    
+    click.echo("Getting administrative data from GISCO")
+    gdf = gpd.read_file(request_url)
+
+    gdf.to_feather('prova.feather', compression='zstd')
+
+def download_gadm_administrative_data(filename : Path, level : int=2):
+    """
+    Fetch local administrative units from the GADM API.
+    
+    Parameters:
+    - level: The administrative level. Default is 2.
+    """
+    gdf = gpd.GeoDataFrame()
+    cc = coco.CountryConverter()
+    for country in list(cc.EU28as('ISO3')['ISO3']):
+        gadm_url = f'https://geodata.ucdavis.edu/gadm/gadm4.1/json/gadm41_{country}_{level}.json.zip'
+        res = requests.get(gadm_url)
+        if res.status_code == 200:
+            with zipfile.ZipFile(io.BytesIO(res.content)) as z:
+                for file in z.namelist():
+                    if '.json' in file:
+                        gdf = pd.concat([gdf, gpd.read_file(z.open(file))])
+        else:
+            click.echo(f'Skipping country {country} due to error {res.status_code} {res.reason}')
+
+    gdf.to_feather(filename, compression='zstd')

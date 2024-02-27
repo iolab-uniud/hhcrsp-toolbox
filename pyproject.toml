@@ -8,7 +8,7 @@ readme = "README.md"
 packages = [{ include = "hhcrsp" }]
 
 [tool.poetry.dependencies]
-python = ">=3.11,<3.12"
+python = ">=3.10,<3.12"
 click = "^8.1.7"
 pydantic = "^2.6.1"
 tabulate = "^0.9.0"
@@ -39,6 +39,7 @@ humanize = "^4.9.0"
 folium = "^0.15.1"
 pyosrm = {git = "https://github.com/liuq/pyosrm"}
 autopage = "^0.5.2"
+country-converter = "^1.2"
 
 
 [build-system]
