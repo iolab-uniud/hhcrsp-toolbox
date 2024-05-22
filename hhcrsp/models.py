@@ -58,7 +58,7 @@ class Patient(BaseModel):
     @model_validator(mode='after')
     def _validity_checks(self) -> 'Patient':
         if len(self.required_services) > 1:
-            assert self.synchronization is not None, "Synchronization specification is mandatory if more than one caregiver is required"
+            assert self.synchronization is not None, "Synchronization specification is mandatory if more than one caregiver is  required"
         if self.time_window is not None:
             assert self.time_window[0] < self.time_window[1], f"Time window not correct {self.time_window}"
         return self
@@ -386,12 +386,12 @@ class Solution(BaseModel):
                 extra_time.append(r.locations[-1].arrival_time - c.working_shift[1])
 
         return {
-            'total_tardiness': sum(tardiness), 
+            'total_tardiness': sum(tardiness)if tardiness else 0, 
             'max_tardiness': max(tardiness) if tardiness else 0,
             'traveled_distance': distance_traveled,
-            'total_waiting_time': sum(waiting_time),
-            'max_waiting_time': max(waiting_time),
-            'total_extra_time': sum(extra_time),
+            'total_waiting_time': sum(waiting_time) if waiting_time else 0,
+            'max_waiting_time': max(waiting_time) if waiting_time else 0,
+            'total_extra_time': sum(extra_time) if extra_time else 0,
             'under_load': under_load,
             'over_load': over_load,
             'balance': under_load + over_load
